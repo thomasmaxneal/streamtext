@@ -261,11 +261,15 @@
           <td><kbd>Shift</kbd> + <kbd>I</kbd></td>
           <td class="desc">Toggle Inscryption font</td>
         </tr>
+        <tr>
+          <td><kbd>Shift</kbd> + <kbd>C</kbd> / <kbd>Ctrl</kbd> + <kbd>C</kbd></td>
+          <td class="desc">Toggle cursor visibility</td>
+        </tr>
       </table>
       <p class="hold-hint">Hold ` to show this panel</p>
     </div>
   </div>
-  <div id="capture-indicator" class="on">
+  <div id="capture-indicator" class="on" style="opacity:0">
     <div class="dot"></div>
     <span class="label">Capturing</span>
   </div>
@@ -429,6 +433,7 @@
 
     // ── draw live characters each frame ──────────────────────────────────
     let cursorVisible = true;
+    let cursorEnabled = true;
     setInterval(() => { cursorVisible = !cursorVisible; }, 530);
 
     function drawLive(now) {
@@ -456,7 +461,7 @@
       }
 
       // blinking cursor
-      if (cursorVisible && liveChars.length) {
+      if (cursorEnabled && cursorVisible && liveChars.length) {
         const last = liveChars[liveChars.length - 1];
         const cursorX = last.x + last.w + 6;
         const cursorH = last.size * 0.82;
@@ -501,6 +506,11 @@
         toggleFont();
         return;
       }
+      if ((e.key === 'C' && e.shiftKey) || (e.key === 'c' && e.ctrlKey)) {
+        e.preventDefault();
+        cursorEnabled = !cursorEnabled;
+        return;
+      }
 
       if (!capturing) return;
 
@@ -522,6 +532,7 @@
       if (isToggle) { e.preventDefault(); setCapture(!capturing); }
       if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); indicator.style.opacity = indicator.style.opacity === '0' ? '' : '0'; }
       if (e.key === 'b' && e.ctrlKey) { e.preventDefault(); showBgSlider(); }
+      if ((e.key === 'C' && e.shiftKey) || (e.key === 'c' && e.ctrlKey)) { e.preventDefault(); cursorEnabled = !cursorEnabled; }
     });
 
     // ── dissolve: immediately scatter each character as a leaf ───────────
