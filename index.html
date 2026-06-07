@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stream Text</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&family=UnifrakturMaguntia&display=swap');
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -257,6 +257,10 @@
           <td><kbd>Ctrl</kbd> + <kbd>B</kbd></td>
           <td class="desc">Background opacity slider</td>
         </tr>
+        <tr>
+          <td><kbd>Shift</kbd> + <kbd>I</kbd></td>
+          <td class="desc">Toggle Inscryption font</td>
+        </tr>
       </table>
       <p class="hold-hint">Hold ` to show this panel</p>
     </div>
@@ -329,7 +333,20 @@
     // ── config ───────────────────────────────────────────────────────────
     const SUBMIT_DELAY = 1800;
     const COLORS = ['#e8e0ff','#b48eff','#8a5fff','#c0aaff','#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'];
-    const POP_MS = 160; // letter pop-in duration
+    const POP_MS = 160;
+
+    const FONTS = {
+      normal:     { family: "'Nunito', sans-serif",          weight: '800' },
+      inscryption: { family: "'UnifrakturMaguntia', cursive", weight: '400' },
+    };
+    let activeFont = 'normal';
+    function toggleFont() {
+      activeFont = activeFont === 'normal' ? 'inscryption' : 'normal';
+      // Reflow with new font if text is live
+      if (liveText) reflow(liveText, performance.now());
+    }
+    function fontFamily() { return FONTS[activeFont].family; }
+    function fontWeight() { return FONTS[activeFont].weight; }
 
     // ── state ────────────────────────────────────────────────────────────
     let liveText    = '';
@@ -351,9 +368,9 @@
       const size   = fontSize(chars.length);
       const lineH  = size * 1.48;
       const maxW   = canvas.width * 0.84;
-      const weight = '800';
+      const weight = fontWeight();
 
-      ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
+      ctx.font = `${weight} ${size}px ${fontFamily()}`;
 
       // Build lines by character, breaking at spaces when line is full
       const lines  = [];
@@ -400,6 +417,7 @@
             ch, w,
             x: curX, y: baseY,
             size, weight, color,
+            fontFamily: fontFamily(),
             born: oldByIdx[idx] !== undefined ? oldByIdx[idx] : now
           });
           curX += w;
@@ -428,7 +446,7 @@
         ctx.globalAlpha = alpha;
         ctx.translate(c.x + c.w / 2, c.y);
         ctx.scale(scale, scale);
-        ctx.font        = `${c.weight} ${c.size}px 'Nunito', sans-serif`;
+        ctx.font        = `${c.weight} ${c.size}px ${c.fontFamily || fontFamily()}`;
         ctx.shadowColor = c.color;
         ctx.shadowBlur  = 20;
         ctx.fillStyle   = c.color;
@@ -478,6 +496,11 @@
         showBgSlider();
         return;
       }
+      if (e.key === 'I' && e.shiftKey) {
+        e.preventDefault();
+        toggleFont();
+        return;
+      }
 
       if (!capturing) return;
 
@@ -507,7 +530,7 @@
 
       for (const c of liveChars) {
         if (c.ch === ' ') continue;
-        particles.push(new LeafParticle(c.ch, c.x + c.w / 2, c.y, c.size, c.weight, c.color));
+        particles.push(new LeafParticle(c.ch, c.x + c.w / 2, c.y, c.size, c.weight, c.color, c.fontFamily || fontFamily()));
       }
 
       input.value = '';
@@ -517,13 +540,14 @@
 
     // ── LeafParticle — drifts and sways like an autumn leaf ──────────────
     class LeafParticle {
-      constructor(ch, x, y, size, weight, color) {
-        this.ch     = ch;
-        this.x      = x;
-        this.y      = y;
-        this.size   = size * (0.75 + Math.random() * 0.35);
-        this.weight = weight;
-        this.color  = color;
+      constructor(ch, x, y, size, weight, color, fontFam) {
+        this.ch         = ch;
+        this.x          = x;
+        this.y          = y;
+        this.size       = size * (0.75 + Math.random() * 0.35);
+        this.weight     = weight;
+        this.color      = color;
+        this.fontFamily = fontFam || "'Nunito', sans-serif";
         this.alpha  = 0.92 + Math.random() * 0.08;
 
         // Each leaf has a unique sway frequency and phase
@@ -575,7 +599,7 @@
         ctx.globalAlpha = Math.max(0, this.alpha);
         ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation);
-        ctx.font        = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+        ctx.font        = `${this.weight} ${this.size}px ${this.fontFamily}`;
         ctx.shadowColor = this.color;
         ctx.shadowBlur  = 12 + (1 - this.alpha) * 10;
         ctx.fillStyle   = this.color;
