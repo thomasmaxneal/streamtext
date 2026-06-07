@@ -80,12 +80,111 @@
       box-shadow: 0 0 8px #ff6b6b;
     }
     #capture-indicator.off .label { color: rgba(255,100,100,0.6); }
+
+    #hotkey-overlay {
+      position: fixed; inset: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10,8,18,0.82);
+      backdrop-filter: blur(6px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    #hotkey-overlay.visible { opacity: 1; }
+
+    #hotkey-overlay .card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(180,142,255,0.2);
+      border-radius: 18px;
+      padding: 36px 48px;
+      min-width: 340px;
+      font-family: 'Nunito', sans-serif;
+    }
+    #hotkey-overlay h2 {
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(180,142,255,0.5);
+      margin-bottom: 24px;
+    }
+    #hotkey-overlay table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    #hotkey-overlay tr + tr td { padding-top: 14px; }
+    #hotkey-overlay td:first-child {
+      padding-right: 28px;
+      white-space: nowrap;
+    }
+    #hotkey-overlay kbd {
+      display: inline-block;
+      background: rgba(180,142,255,0.12);
+      border: 1px solid rgba(180,142,255,0.3);
+      border-radius: 6px;
+      padding: 2px 9px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: #c0aaff;
+      letter-spacing: 0.04em;
+    }
+    #hotkey-overlay .desc {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: rgba(232,224,255,0.6);
+    }
+    #hotkey-overlay .hold-hint {
+      margin-top: 22px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(180,142,255,0.28);
+      text-align: center;
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <input id="hidden-input" type="text" autocomplete="off" spellcheck="false" />
   <div id="hint">Start typing&hellip;</div>
+
+  <div id="hotkey-overlay">
+    <div class="card">
+      <h2>Hotkeys</h2>
+      <table>
+        <tr>
+          <td><kbd>Enter</kbd></td>
+          <td class="desc">Dissolve text immediately</td>
+        </tr>
+        <tr>
+          <td><kbd>Shift</kbd> + <kbd>Space</kbd></td>
+          <td class="desc">Toggle keyboard capture</td>
+        </tr>
+        <tr>
+          <td><kbd>F2</kbd></td>
+          <td class="desc">Toggle keyboard capture</td>
+        </tr>
+        <tr>
+          <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+          <td class="desc">Hide / show status indicator</td>
+        </tr>
+        <tr>
+          <td><kbd>Shift</kbd> + <kbd>F</kbd></td>
+          <td class="desc">Enter fullscreen</td>
+        </tr>
+        <tr>
+          <td><kbd>Escape</kbd></td>
+          <td class="desc">Exit fullscreen</td>
+        </tr>
+      </table>
+      <p class="hold-hint">Hold ` to show this panel</p>
+    </div>
+  </div>
   <div id="capture-indicator" class="on">
     <div class="dot"></div>
     <span class="label">Capturing</span>
@@ -98,6 +197,7 @@
     const input     = document.getElementById('hidden-input');
     const hint      = document.getElementById('hint');
     const indicator = document.getElementById('capture-indicator');
+    const hotkeyOverlay = document.getElementById('hotkey-overlay');
 
     // ── input capture toggle ─────────────────────────────────────────────
     let capturing = true;
@@ -112,6 +212,14 @@
     function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
     window.addEventListener('resize', resize);
     resize();
+
+    // ── backtick hold → hotkey overlay ───────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '`' && !e.repeat) hotkeyOverlay.classList.add('visible');
+    });
+    document.addEventListener('keyup', (e) => {
+      if (e.key === '`') hotkeyOverlay.classList.remove('visible');
+    });
 
     // ── focus ────────────────────────────────────────────────────────────
     document.addEventListener('click',   () => { if (capturing) input.focus(); });
