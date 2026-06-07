@@ -49,19 +49,64 @@
       text-align: center;
     }
     #hint.hidden { opacity: 0; }
+
+    #capture-indicator {
+      position: fixed;
+      top: 24px; right: 28px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    #capture-indicator .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    #capture-indicator.on .dot {
+      background: #7dff9a;
+      box-shadow: 0 0 8px #7dff9a;
+    }
+    #capture-indicator.on .label { color: rgba(255,255,255,0.35); }
+    #capture-indicator.off .dot {
+      background: #ff6b6b;
+      box-shadow: 0 0 8px #ff6b6b;
+    }
+    #capture-indicator.off .label { color: rgba(255,100,100,0.6); }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <input id="hidden-input" type="text" autocomplete="off" spellcheck="false" />
   <div id="hint">Start typing&hellip;</div>
+  <div id="capture-indicator" class="on">
+    <div class="dot"></div>
+    <span class="label">Capturing</span>
+  </div>
 
   <script>
   (() => {
-    const canvas = document.getElementById('canvas');
-    const ctx    = canvas.getContext('2d');
-    const input  = document.getElementById('hidden-input');
-    const hint   = document.getElementById('hint');
+    const canvas    = document.getElementById('canvas');
+    const ctx       = canvas.getContext('2d');
+    const input     = document.getElementById('hidden-input');
+    const hint      = document.getElementById('hint');
+    const indicator = document.getElementById('capture-indicator');
+
+    // ── input capture toggle ─────────────────────────────────────────────
+    let capturing = true;
+    function setCapture(on) {
+      capturing = on;
+      indicator.className = on ? 'on' : 'off';
+      indicator.querySelector('.label').textContent = on ? 'Capturing' : 'Paused';
+      if (on) input.focus(); else input.blur();
+    }
 
     // ── resize ───────────────────────────────────────────────────────────
     function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
@@ -69,8 +114,8 @@
     resize();
 
     // ── focus ────────────────────────────────────────────────────────────
-    document.addEventListener('click',   () => input.focus());
-    document.addEventListener('keydown', () => input.focus());
+    document.addEventListener('click',   () => { if (capturing) input.focus(); });
+    document.addEventListener('keydown', () => { if (capturing) input.focus(); });
     window.addEventListener('load',      () => input.focus());
     input.focus();
 
@@ -202,6 +247,7 @@
 
     // ── input events ─────────────────────────────────────────────────────
     input.addEventListener('input', () => {
+      if (!capturing) return;
       liveText = input.value;
       reflow(liveText, performance.now());
       hint.classList.add('hidden');
@@ -211,6 +257,12 @@
     });
 
     input.addEventListener('keydown', (e) => {
+      // toggle hotkeys work regardless of capture state
+      const isToggle = (e.key === ' ' && e.shiftKey) || e.key === 'F2';
+      if (isToggle) { e.preventDefault(); setCapture(!capturing); return; }
+
+      if (!capturing) return;
+
       if (e.key === 'Enter') {
         e.preventDefault();
         clearTimeout(submitTimer);
@@ -220,6 +272,13 @@
         e.preventDefault();
         if (!document.fullscreenElement) document.documentElement.requestFullscreen();
       }
+    });
+
+    // catch F2 / Shift+Space even when input is blurred (paused state)
+    document.addEventListener('keydown', (e) => {
+      if (document.activeElement === input) return;
+      const isToggle = (e.key === ' ' && e.shiftKey) || e.key === 'F2';
+      if (isToggle) { e.preventDefault(); setCapture(!capturing); }
     });
 
     // ── dissolve: immediately scatter each character as a leaf ───────────
