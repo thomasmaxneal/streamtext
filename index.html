@@ -75,89 +75,123 @@
     input.focus();
 
     // ── config ───────────────────────────────────────────────────────────
-    const SUBMIT_DELAY    = 1800;  // ms idle → auto dissolve
-    const DISPLAY_HOLD    = 4200;  // ms dissolve particles hold before fading
-    const GAP_X           = 22;
+    const SUBMIT_DELAY = 1800;
+    const DISPLAY_HOLD = 4200;
     const COLORS = ['#e8e0ff','#b48eff','#8a5fff','#c0aaff','#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'];
+    const POP_MS = 160; // letter pop-in duration
 
     // ── state ────────────────────────────────────────────────────────────
-    let liveText    = '';      // what the user is currently typing
+    let liveText    = '';
     let submitTimer = null;
-    const particles = [];      // dissolving WordParticles
+    const particles = [];
 
-    // ── layout helper: returns array of {word,weight,color,x,y,size} ─────
-    function layoutWords(text) {
-      const words = text.split(/\s+/).filter(Boolean);
-      if (!words.length) return [];
+    // Per-character live display: array of { ch, x, y, size, weight, color, born }
+    // Rebuilt on every keystroke, new chars get fresh `born` timestamps.
+    let liveChars = [];
 
-      const maxW  = canvas.width * 0.84;
-      const size  = Math.max(32, Math.min(86, 86 - words.length * 2.6));
-      const lineH = size * 1.48;
+    // ── font size based on char count ────────────────────────────────────
+    function fontSize(n) { return Math.max(32, Math.min(86, 86 - n * 1.1)); }
 
-      // measure
-      const measured = words.map((word, i) => {
-        const weight = i % 2 === 0 ? '900' : '700';
-        ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
-        return { word, weight, w: ctx.measureText(word).width };
-      });
+    // ── reflow all characters into wrapped lines ─────────────────────────
+    function reflow(text, now) {
+      const chars = text.split('');
+      if (!chars.length) { liveChars = []; return; }
 
-      // word-wrap
-      const lines = [];
-      let line = [], lineW = 0;
-      for (const m of measured) {
-        const needed = line.length === 0 ? m.w : m.w + GAP_X;
-        if (line.length > 0 && lineW + needed > maxW) {
-          lines.push(line); line = [m]; lineW = m.w;
-        } else {
-          line.push(m); lineW += needed;
+      const size   = fontSize(chars.length);
+      const lineH  = size * 1.48;
+      const maxW   = canvas.width * 0.84;
+      const weight = '800';
+
+      ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
+
+      // Build lines by character, breaking at spaces when line is full
+      const lines  = [];
+      let line     = [], lineW = 0;
+
+      for (let i = 0; i < chars.length; i++) {
+        const ch = chars[i];
+        const cw = ctx.measureText(ch).width;
+        if (lineW + cw > maxW && line.length) {
+          // Try to back-track to last space for clean word wrap
+          let breakAt = line.length - 1;
+          while (breakAt > 0 && line[breakAt].ch !== ' ') breakAt--;
+          if (breakAt > 0) {
+            lines.push(line.slice(0, breakAt + 1));
+            line  = line.slice(breakAt + 1);
+            lineW = line.reduce((s, c) => s + c.w, 0);
+          } else {
+            lines.push(line);
+            line  = [];
+            lineW = 0;
+          }
         }
+        line.push({ ch, w: cw });
+        lineW += cw;
       }
       if (line.length) lines.push(line);
+
+      // Map old liveChars by index so existing chars keep their born time
+      const oldByIdx = {};
+      liveChars.forEach((c, i) => { oldByIdx[i] = c.born; });
 
       const totalH = lines.length * lineH - (lineH - size);
       const startY = canvas.height / 2 - totalH / 2 + size;
 
-      const result = [];
-      let colorIdx = 0;
+      let idx = 0;
+      const next = [];
       lines.forEach((ln, li) => {
-        const lw = ln.reduce((s, m, i) => s + m.w + (i > 0 ? GAP_X : 0), 0);
-        let curX = canvas.width / 2 - lw / 2;
+        const lw   = ln.reduce((s, c) => s + c.w, 0);
+        let curX   = canvas.width / 2 - lw / 2;
         const baseY = startY + li * lineH;
-        for (const m of ln) {
-          result.push({ ...m, x: curX, y: baseY, size, color: COLORS[colorIdx % COLORS.length] });
-          colorIdx++;
-          curX += m.w + GAP_X;
+        for (const { ch, w } of ln) {
+          const color = ch === ' ' ? 'transparent' : COLORS[idx % COLORS.length];
+          next.push({
+            ch, w,
+            x: curX, y: baseY,
+            size, weight, color,
+            born: oldByIdx[idx] !== undefined ? oldByIdx[idx] : now
+          });
+          curX += w;
+          idx++;
         }
       });
-      return result;
+      liveChars = next;
     }
 
-    // ── draw live text each frame ────────────────────────────────────────
+    // ── draw live characters each frame ──────────────────────────────────
     let cursorVisible = true;
     setInterval(() => { cursorVisible = !cursorVisible; }, 530);
 
     function drawLive(now) {
       if (!liveText) return;
-      const layout = layoutWords(liveText);
 
-      layout.forEach(({ word, weight, color, x, y, size }) => {
+      for (const c of liveChars) {
+        if (c.ch === ' ') continue;
+        const age  = now - c.born;
+        const t    = Math.min(age / POP_MS, 1);
+        const ease = 1 - Math.pow(1 - t, 3);
+        const scale = 0.3 + ease * 0.7;
+        const alpha = ease;
+
         ctx.save();
-        ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
-        ctx.shadowColor = color;
-        ctx.shadowBlur  = 18;
-        ctx.fillStyle   = color;
-        ctx.globalAlpha = 1;
-        ctx.fillText(word, x, y);
+        ctx.globalAlpha = alpha;
+        ctx.translate(c.x + c.w / 2, c.y);
+        ctx.scale(scale, scale);
+        ctx.font        = `${c.weight} ${c.size}px 'Nunito', sans-serif`;
+        ctx.shadowColor = c.color;
+        ctx.shadowBlur  = 20;
+        ctx.fillStyle   = c.color;
+        ctx.textAlign   = 'center';
+        ctx.fillText(c.ch, 0, 0);
         ctx.restore();
-      });
+      }
 
-      // blinking cursor after last word
-      if (cursorVisible && layout.length) {
-        const last = layout[layout.length - 1];
+      // blinking cursor
+      if (cursorVisible && liveChars.length) {
+        const last = liveChars[liveChars.length - 1];
+        const cursorX = last.x + last.w + 6;
+        const cursorH = last.size * 0.82;
         ctx.save();
-        ctx.font      = `${last.weight} ${last.size}px 'Nunito', sans-serif`;
-        const cursorX = last.x + last.w + 8;
-        const cursorH = last.size * 0.85;
         ctx.shadowColor = '#b48eff';
         ctx.shadowBlur  = 14;
         ctx.fillStyle   = '#b48eff';
@@ -170,6 +204,7 @@
     // ── input events ─────────────────────────────────────────────────────
     input.addEventListener('input', () => {
       liveText = input.value;
+      reflow(liveText, performance.now());
       hint.classList.add('hidden');
 
       clearTimeout(submitTimer);
@@ -184,18 +219,33 @@
       }
     });
 
-    // ── dissolve: snapshot layout → spawn particles → clear live text ────
+    // ── dissolve: snapshot liveChars → spawn particles by word ───────────
     function dissolve() {
-      const text = liveText.trim();
-      if (!text) return;
+      if (!liveText.trim()) return;
 
-      const layout = layoutWords(text);
-      layout.forEach(({ word, weight, color, x, y, size }) => {
+      // Group consecutive non-space chars into words, spawn one WordParticle each
+      let wordStart = -1;
+      let wordX = 0;
+      const snap = liveChars;
+
+      const flush = (endIdx) => {
+        if (wordStart < 0) return;
+        const slice = snap.slice(wordStart, endIdx);
+        const word  = slice.map(c => c.ch).join('');
+        const { x, y, size, weight, color } = slice[0];
         particles.push(new WordParticle(word, x, y, size, weight, color));
+        wordStart = -1;
+      };
+
+      snap.forEach((c, i) => {
+        if (c.ch === ' ') { flush(i); }
+        else if (wordStart < 0) { wordStart = i; }
       });
+      flush(snap.length);
 
       input.value = '';
-      liveText = '';
+      liveText    = '';
+      liveChars   = [];
     }
 
     // ── WordParticle ─────────────────────────────────────────────────────
