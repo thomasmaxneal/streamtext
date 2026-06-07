@@ -76,7 +76,7 @@
 
     // ── config ───────────────────────────────────────────────────────────
     const SUBMIT_DELAY = 1800;
-    const DISPLAY_HOLD = 4200;
+    const DISPLAY_HOLD = 2400;
     const COLORS = ['#e8e0ff','#b48eff','#8a5fff','#c0aaff','#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'];
     const POP_MS = 160; // letter pop-in duration
 
@@ -217,6 +217,11 @@
         clearTimeout(submitTimer);
         if (liveText.trim()) dissolve();
       }
+      if (e.key === 'F' && e.shiftKey) {
+        e.preventDefault();
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+      }
     });
 
     // ── dissolve: snapshot liveChars → spawn particles by word ───────────
@@ -277,7 +282,7 @@
             this.spawnLetterParticles();
           }
         } else {
-          this.alpha     -= 0.022;
+          this.alpha     -= 0.032;
           this.x         += this.explodeVX;
           this.y         += this.explodeVY;
           this.explodeVY -= 0.05;
