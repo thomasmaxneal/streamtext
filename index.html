@@ -209,58 +209,65 @@
     // ── word cloud spawner ───────────────────────────────────────────────
     function spawnWordCloud(text) {
       const words = text.split(/\s+/).filter(Boolean);
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
+      const maxW = canvas.width * 0.82;
+      const gapX = 22;
+      const gapY = 16;
 
-      // Arrange words in a flowing cluster
-      const placed = [];
-      const padding = 18;
+      // Font size scales down for longer messages
+      const size = Math.max(32, Math.min(86, 86 - words.length * 2.8));
+      const lineH = size * 1.45;
 
-      words.forEach((word, i) => {
-        const size = Math.max(38, Math.min(90, 90 - words.length * 3.5));
+      const colors = [
+        '#e8e0ff','#b48eff','#8a5fff','#c0aaff',
+        '#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'
+      ];
+
+      // Measure every word first
+      const measured = words.map((word, i) => {
         const weight = ['700','900'][i % 2];
-
-        // Measure
         ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
-        const w = ctx.measureText(word).width;
-        const h = size * 1.2;
-
-        // Try to place without major overlap
-        let x, y, tries = 0;
-        const spreadX = Math.min(canvas.width * 0.38, 320);
-        const spreadY = Math.min(canvas.height * 0.28, 200);
-        do {
-          const angle = (i / words.length) * Math.PI * 2 + Math.random() * 0.8;
-          const r = tries < 20
-            ? 60 + tries * 18 + Math.random() * 40
-            : Math.random() * Math.max(spreadX, spreadY);
-          x = cx + Math.cos(angle) * Math.min(r, spreadX) - w / 2;
-          y = cy + Math.sin(angle) * Math.min(r, spreadY) + h / 2;
-          tries++;
-        } while (tries < 60 && overlaps(placed, x - padding, y - h - padding, w + padding*2, h + padding*2));
-
-        placed.push({ x: x - padding, y: y - h - padding, w: w + padding*2, h: h + padding*2 });
-
-        // Pick a colour from palette
-        const hue = (220 + i * 37 + Math.random() * 20) % 360;
-        const colors = [
-          '#e8e0ff','#b48eff','#8a5fff','#c0aaff',
-          '#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'
-        ];
-        const color = colors[i % colors.length];
-
-        // Glow colour
-        const glow = color;
-
-        particles.push(new WordParticle(word, x, y, size, weight, color, glow));
+        return { word, weight, w: ctx.measureText(word).width };
       });
-    }
 
-    function overlaps(placed, x, y, w, h) {
-      for (const r of placed) {
-        if (x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y) return true;
+      // Word-wrap into lines (left-to-right order preserved)
+      const lines = [];
+      let line = [];
+      let lineW = 0;
+      for (const m of measured) {
+        const needed = line.length === 0 ? m.w : m.w + gapX;
+        if (line.length > 0 && lineW + needed > maxW) {
+          lines.push(line);
+          line = [m];
+          lineW = m.w;
+        } else {
+          line.push(m);
+          lineW += needed;
+        }
       }
-      return false;
+      if (line.length) lines.push(line);
+
+      // Total block height, center vertically
+      const totalH = lines.length * lineH - (lineH - size);
+      const startY = canvas.height / 2 - totalH / 2 + size;
+
+      let colorIdx = 0;
+      lines.forEach((ln, li) => {
+        // Total width of this line
+        const lw = ln.reduce((s, m, i) => s + m.w + (i > 0 ? gapX : 0), 0);
+        let curX = canvas.width / 2 - lw / 2;
+        const baseY = startY + li * lineH;
+
+        ln.forEach((m) => {
+          const color = colors[colorIdx % colors.length];
+          colorIdx++;
+          // Slight vertical jitter per word for a playful feel
+          const jitter = (Math.random() - 0.5) * gapY;
+          particles.push(new WordParticle(
+            m.word, curX, baseY + jitter, size, m.weight, color, color
+          ));
+          curX += m.w + gapX;
+        });
+      });
     }
 
     // ── WordParticle ─────────────────────────────────────────────────────
