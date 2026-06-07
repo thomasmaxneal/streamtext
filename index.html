@@ -282,9 +282,7 @@
     let bgOpacity = 1;
     function applyBgOpacity(val) {
       bgOpacity = val / 100;
-      document.body.style.background = bgOpacity === 0
-        ? 'transparent'
-        : `rgba(13,13,15,${bgOpacity})`;
+      document.body.style.background = `rgba(13,13,15,${bgOpacity})`;
       bgValueLabel.textContent = val + '%';
     }
     bgSlider.addEventListener('input', () => { applyBgOpacity(Number(bgSlider.value)); showBgSlider(); });
@@ -292,8 +290,12 @@
     let bgSliderTimer = null;
     function showBgSlider() {
       bgSliderPanel.classList.add('visible');
+      document.body.style.cursor = 'default';
       clearTimeout(bgSliderTimer);
-      bgSliderTimer = setTimeout(() => bgSliderPanel.classList.remove('visible'), 3000);
+      bgSliderTimer = setTimeout(() => {
+        bgSliderPanel.classList.remove('visible');
+        document.body.style.cursor = 'none';
+      }, 3000);
     }
 
     // ── input capture toggle ─────────────────────────────────────────────
