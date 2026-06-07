@@ -9,420 +9,295 @@
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --bg: #0d0d0f;
-      --text: #e8e0ff;
-      --accent: #b48eff;
-      --glow: #8a5fff;
-      --cursor: #b48eff;
-    }
-
     html, body {
       width: 100%; height: 100%;
-      background: var(--bg);
+      background: #0d0d0f;
       overflow: hidden;
-      font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Nunito', system-ui, sans-serif;
       cursor: none;
     }
 
-    /* Subtle vignette */
     body::after {
       content: '';
       position: fixed; inset: 0;
-      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.7) 100%);
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.65) 100%);
       pointer-events: none;
       z-index: 0;
     }
 
-    #canvas {
-      position: fixed; inset: 0;
-      z-index: 1;
-    }
+    #canvas { position: fixed; inset: 0; z-index: 1; }
 
-    /* Hidden real input so keyboard still works */
     #hidden-input {
-      position: fixed;
-      opacity: 0;
+      position: fixed; opacity: 0;
       width: 1px; height: 1px;
       top: 0; left: 0;
       pointer-events: none;
     }
 
-    /* Typing bar at bottom */
-    #typing-bar {
-      position: fixed;
-      bottom: 36px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10;
-      display: flex;
-      align-items: center;
-      gap: 0;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(180,142,255,0.18);
-      border-radius: 999px;
-      padding: 14px 28px;
-      min-width: 340px;
-      max-width: 80vw;
-      backdrop-filter: blur(8px);
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-    #typing-bar.active {
-      border-color: rgba(180,142,255,0.5);
-      box-shadow: 0 0 24px rgba(138,95,255,0.25);
-    }
-
-    #typed-preview {
-      flex: 1;
-      font-family: 'Nunito', sans-serif;
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: 0.02em;
-      min-height: 1.4em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    #typed-preview .cursor {
-      display: inline-block;
-      width: 2px;
-      height: 1.1em;
-      background: var(--cursor);
-      margin-left: 2px;
-      vertical-align: text-bottom;
-      animation: blink 1s step-start infinite;
-    }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0; }
-    }
-
     #hint {
       position: fixed;
-      top: 50%;
-      left: 50%;
+      top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       z-index: 2;
-      color: rgba(180,142,255,0.22);
-      font-size: 1.15rem;
-      font-family: 'Nunito', sans-serif;
+      color: rgba(180,142,255,0.2);
+      font-size: 1.1rem;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       pointer-events: none;
-      transition: opacity 0.6s;
+      transition: opacity 0.5s;
       text-align: center;
     }
-
     #hint.hidden { opacity: 0; }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <input id="hidden-input" type="text" autocomplete="off" spellcheck="false" />
-
   <div id="hint">Start typing&hellip;</div>
-
-  <div id="typing-bar">
-    <div id="typed-preview"><span class="cursor"></span></div>
-  </div>
 
   <script>
   (() => {
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const input = document.getElementById('hidden-input');
-    const preview = document.getElementById('typed-preview');
-    const hint = document.getElementById('hint');
-    const bar = document.getElementById('typing-bar');
+    const ctx    = canvas.getContext('2d');
+    const input  = document.getElementById('hidden-input');
+    const hint   = document.getElementById('hint');
 
-    // ── resize ──────────────────────────────────────────────────────────
-    function resize() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
+    // ── resize ───────────────────────────────────────────────────────────
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
     window.addEventListener('resize', resize);
     resize();
 
-    // ── focus management ─────────────────────────────────────────────────
-    document.addEventListener('click', () => input.focus());
+    // ── focus ────────────────────────────────────────────────────────────
+    document.addEventListener('click',   () => input.focus());
     document.addEventListener('keydown', () => input.focus());
+    window.addEventListener('load',      () => input.focus());
     input.focus();
 
+    // ── config ───────────────────────────────────────────────────────────
+    const SUBMIT_DELAY    = 1800;  // ms idle → auto dissolve
+    const DISPLAY_HOLD    = 4200;  // ms dissolve particles hold before fading
+    const GAP_X           = 22;
+    const COLORS = ['#e8e0ff','#b48eff','#8a5fff','#c0aaff','#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'];
+
     // ── state ────────────────────────────────────────────────────────────
-    let currentText = '';
+    let liveText    = '';      // what the user is currently typing
     let submitTimer = null;
-    const SUBMIT_DELAY = 1800;   // ms of idle before auto-submit
-    const DISPLAY_DURATION = 4200; // ms word cloud stays before dissolving
-    const particles = [];
+    const particles = [];      // dissolving WordParticles
 
-    // ── preview bar update ───────────────────────────────────────────────
-    function updatePreview() {
-      preview.innerHTML = currentText
-        ? escapeHtml(currentText) + '<span class="cursor"></span>'
-        : '<span class="cursor"></span>';
+    // ── layout helper: returns array of {word,weight,color,x,y,size} ─────
+    function layoutWords(text) {
+      const words = text.split(/\s+/).filter(Boolean);
+      if (!words.length) return [];
+
+      const maxW  = canvas.width * 0.84;
+      const size  = Math.max(32, Math.min(86, 86 - words.length * 2.6));
+      const lineH = size * 1.48;
+
+      // measure
+      const measured = words.map((word, i) => {
+        const weight = i % 2 === 0 ? '900' : '700';
+        ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
+        return { word, weight, w: ctx.measureText(word).width };
+      });
+
+      // word-wrap
+      const lines = [];
+      let line = [], lineW = 0;
+      for (const m of measured) {
+        const needed = line.length === 0 ? m.w : m.w + GAP_X;
+        if (line.length > 0 && lineW + needed > maxW) {
+          lines.push(line); line = [m]; lineW = m.w;
+        } else {
+          line.push(m); lineW += needed;
+        }
+      }
+      if (line.length) lines.push(line);
+
+      const totalH = lines.length * lineH - (lineH - size);
+      const startY = canvas.height / 2 - totalH / 2 + size;
+
+      const result = [];
+      let colorIdx = 0;
+      lines.forEach((ln, li) => {
+        const lw = ln.reduce((s, m, i) => s + m.w + (i > 0 ? GAP_X : 0), 0);
+        let curX = canvas.width / 2 - lw / 2;
+        const baseY = startY + li * lineH;
+        for (const m of ln) {
+          result.push({ ...m, x: curX, y: baseY, size, color: COLORS[colorIdx % COLORS.length] });
+          colorIdx++;
+          curX += m.w + GAP_X;
+        }
+      });
+      return result;
     }
 
-    function escapeHtml(s) {
-      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // ── draw live text each frame ────────────────────────────────────────
+    let cursorVisible = true;
+    setInterval(() => { cursorVisible = !cursorVisible; }, 530);
+
+    function drawLive(now) {
+      if (!liveText) return;
+      const layout = layoutWords(liveText);
+
+      layout.forEach(({ word, weight, color, x, y, size }) => {
+        ctx.save();
+        ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
+        ctx.shadowColor = color;
+        ctx.shadowBlur  = 18;
+        ctx.fillStyle   = color;
+        ctx.globalAlpha = 1;
+        ctx.fillText(word, x, y);
+        ctx.restore();
+      });
+
+      // blinking cursor after last word
+      if (cursorVisible && layout.length) {
+        const last = layout[layout.length - 1];
+        ctx.save();
+        ctx.font      = `${last.weight} ${last.size}px 'Nunito', sans-serif`;
+        const cursorX = last.x + last.w + 8;
+        const cursorH = last.size * 0.85;
+        ctx.shadowColor = '#b48eff';
+        ctx.shadowBlur  = 14;
+        ctx.fillStyle   = '#b48eff';
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(cursorX, last.y - cursorH, 3, cursorH);
+        ctx.restore();
+      }
     }
 
-    // ── input handling ───────────────────────────────────────────────────
+    // ── input events ─────────────────────────────────────────────────────
     input.addEventListener('input', () => {
-      currentText = input.value;
-      updatePreview();
+      liveText = input.value;
       hint.classList.add('hidden');
-      bar.classList.add('active');
 
       clearTimeout(submitTimer);
-      if (currentText.trim()) {
-        submitTimer = setTimeout(submitText, SUBMIT_DELAY);
-      }
+      if (liveText.trim()) submitTimer = setTimeout(dissolve, SUBMIT_DELAY);
     });
 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         clearTimeout(submitTimer);
-        if (currentText.trim()) submitText();
+        if (liveText.trim()) dissolve();
       }
     });
 
-    // ── submit: burst text into particles ────────────────────────────────
-    function submitText() {
-      const text = currentText.trim();
+    // ── dissolve: snapshot layout → spawn particles → clear live text ────
+    function dissolve() {
+      const text = liveText.trim();
       if (!text) return;
 
-      // Clear input
+      const layout = layoutWords(text);
+      layout.forEach(({ word, weight, color, x, y, size }) => {
+        particles.push(new WordParticle(word, x, y, size, weight, color));
+      });
+
       input.value = '';
-      currentText = '';
-      updatePreview();
-      bar.classList.remove('active');
-
-      spawnWordCloud(text);
-    }
-
-    // ── word cloud spawner ───────────────────────────────────────────────
-    function spawnWordCloud(text) {
-      const words = text.split(/\s+/).filter(Boolean);
-      const maxW = canvas.width * 0.82;
-      const gapX = 22;
-      const gapY = 16;
-
-      // Font size scales down for longer messages
-      const size = Math.max(32, Math.min(86, 86 - words.length * 2.8));
-      const lineH = size * 1.45;
-
-      const colors = [
-        '#e8e0ff','#b48eff','#8a5fff','#c0aaff',
-        '#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'
-      ];
-
-      // Measure every word first
-      const measured = words.map((word, i) => {
-        const weight = ['700','900'][i % 2];
-        ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
-        return { word, weight, w: ctx.measureText(word).width };
-      });
-
-      // Word-wrap into lines (left-to-right order preserved)
-      const lines = [];
-      let line = [];
-      let lineW = 0;
-      for (const m of measured) {
-        const needed = line.length === 0 ? m.w : m.w + gapX;
-        if (line.length > 0 && lineW + needed > maxW) {
-          lines.push(line);
-          line = [m];
-          lineW = m.w;
-        } else {
-          line.push(m);
-          lineW += needed;
-        }
-      }
-      if (line.length) lines.push(line);
-
-      // Total block height, center vertically
-      const totalH = lines.length * lineH - (lineH - size);
-      const startY = canvas.height / 2 - totalH / 2 + size;
-
-      let colorIdx = 0;
-      lines.forEach((ln, li) => {
-        // Total width of this line
-        const lw = ln.reduce((s, m, i) => s + m.w + (i > 0 ? gapX : 0), 0);
-        let curX = canvas.width / 2 - lw / 2;
-        const baseY = startY + li * lineH;
-
-        ln.forEach((m) => {
-          const color = colors[colorIdx % colors.length];
-          colorIdx++;
-          // Slight vertical jitter per word for a playful feel
-          const jitter = (Math.random() - 0.5) * gapY;
-          particles.push(new WordParticle(
-            m.word, curX, baseY + jitter, size, m.weight, color, color
-          ));
-          curX += m.w + gapX;
-        });
-      });
+      liveText = '';
     }
 
     // ── WordParticle ─────────────────────────────────────────────────────
     class WordParticle {
-      constructor(word, x, y, size, weight, color, glow) {
-        this.word = word;
-        this.x = x;
-        this.y = y;
-        this.targetX = x;
-        this.targetY = y;
-        this.size = size;
+      constructor(word, x, y, size, weight, color) {
+        this.word   = word;
+        this.x      = x; this.y = y;
+        this.size   = size;
         this.weight = weight;
-        this.color = color;
-        this.glow = glow;
+        this.color  = color;
 
-        // Start slightly offset for a "pop in" feel
-        this.x += (Math.random() - 0.5) * 60;
-        this.y += (Math.random() - 0.5) * 60;
+        this.alpha    = 1;
+        this.scale    = 1;
+        this.rotation = 0;
+        this.phase    = 'hold';
+        this.born     = performance.now();
 
-        this.alpha = 0;
-        this.scale = 0.4 + Math.random() * 0.3;
-        this.rotation = (Math.random() - 0.5) * 0.25;
-
-        this.phase = 'in';   // in | hold | out
-        this.born = performance.now();
-        this.holdStart = null;
-
-        // Explode direction for dissolve
         this.explodeVX = (Math.random() - 0.5) * 3;
         this.explodeVY = (Math.random() - 0.5) * 3 - 1.5;
-
-        // Sub-letter particles (created on dissolve)
         this.letterParticles = [];
-        this.dissolved = false;
       }
 
       update(now) {
-        const age = now - this.born;
-
-        if (this.phase === 'in') {
-          const t = Math.min(age / 500, 1);
-          const ease = 1 - Math.pow(1 - t, 3);
-          this.alpha = ease;
-          this.scale = 0.4 + ease * 0.65;
-          this.x += (this.targetX - this.x) * 0.14;
-          this.y += (this.targetY - this.y) * 0.14;
-          this.rotation *= 0.88;
-          if (t >= 1) {
-            this.phase = 'hold';
-            this.holdStart = now;
-          }
-        } else if (this.phase === 'hold') {
-          const held = now - this.holdStart;
-          // Gentle breathing
-          this.scale = 1.02 + Math.sin(held / 400 + this.targetX) * 0.02;
-          if (held >= DISPLAY_DURATION) {
+        if (this.phase === 'hold') {
+          const held = now - this.born;
+          this.scale = 1.02 + Math.sin(held / 400 + this.x) * 0.018;
+          if (held >= DISPLAY_HOLD) {
             this.phase = 'out';
             this.spawnLetterParticles();
           }
-        } else if (this.phase === 'out') {
-          this.alpha -= 0.022;
-          this.x += this.explodeVX;
-          this.y += this.explodeVY;
+        } else {
+          this.alpha     -= 0.022;
+          this.x         += this.explodeVX;
+          this.y         += this.explodeVY;
           this.explodeVY -= 0.05;
-          this.scale += 0.012;
-          this.rotation += (Math.random() - 0.5) * 0.04;
-
-          // Update letter particles
+          this.scale     += 0.012;
+          this.rotation  += (Math.random() - 0.5) * 0.04;
           for (const lp of this.letterParticles) lp.update();
         }
       }
 
       spawnLetterParticles() {
-        const letters = this.word.split('');
         ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
         let ox = this.x;
-        for (const ch of letters) {
+        for (const ch of this.word.split('')) {
           const cw = ctx.measureText(ch).width;
-          this.letterParticles.push(new LetterParticle(
-            ch, ox + cw / 2, this.y,
-            this.size, this.weight, this.color
-          ));
+          this.letterParticles.push(new LetterParticle(ch, ox + cw / 2, this.y, this.size, this.weight, this.color));
           ox += cw;
         }
       }
 
-      draw(ctx) {
+      draw() {
         if (this.alpha <= 0) return;
-
         ctx.save();
         ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha));
         ctx.translate(this.x, this.y);
         ctx.scale(this.scale, this.scale);
         ctx.rotate(this.rotation);
-
-        ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
-
-        // Glow
-        ctx.shadowColor = this.glow;
-        ctx.shadowBlur = 22 + (1 - this.alpha) * 20;
-        ctx.fillStyle = this.color;
+        ctx.font        = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur  = 22 + (1 - this.alpha) * 20;
+        ctx.fillStyle   = this.color;
         ctx.fillText(this.word, 0, 0);
-
-        // Second pass for extra glow on hold
         if (this.phase === 'hold') {
-          ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha)) * 0.35;
-          ctx.shadowBlur = 48;
+          ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha)) * 0.3;
+          ctx.shadowBlur  = 48;
           ctx.fillText(this.word, 0, 0);
         }
-
         ctx.restore();
-
-        // Draw letter particles
-        for (const lp of this.letterParticles) lp.draw(ctx);
+        for (const lp of this.letterParticles) lp.draw();
       }
 
-      isDead() {
-        return this.alpha <= 0 && this.phase === 'out';
-      }
+      isDead() { return this.alpha <= 0 && this.phase === 'out'; }
     }
 
-    // ── LetterParticle (dissolve confetti) ───────────────────────────────
+    // ── LetterParticle ───────────────────────────────────────────────────
     class LetterParticle {
       constructor(ch, x, y, size, weight, color) {
-        this.ch = ch;
-        this.x = x;
-        this.y = y;
-        this.size = size * (0.4 + Math.random() * 0.5);
-        this.weight = weight;
-        this.color = color;
-        this.alpha = 0.7 + Math.random() * 0.3;
-        this.vx = (Math.random() - 0.5) * 6;
-        this.vy = (Math.random() - 0.5) * 6 - 2;
+        this.ch     = ch; this.x = x; this.y = y;
+        this.size   = size * (0.4 + Math.random() * 0.5);
+        this.weight = weight; this.color = color;
+        this.alpha  = 0.7 + Math.random() * 0.3;
+        this.vx     = (Math.random() - 0.5) * 6;
+        this.vy     = (Math.random() - 0.5) * 6 - 2;
         this.gravity = 0.12 + Math.random() * 0.1;
         this.rotation = (Math.random() - 0.5) * 0.4;
-        this.rotV = (Math.random() - 0.5) * 0.08;
-        this.fade = 0.016 + Math.random() * 0.012;
+        this.rotV  = (Math.random() - 0.5) * 0.08;
+        this.fade  = 0.016 + Math.random() * 0.012;
       }
       update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vy += this.gravity;
-        this.vx *= 0.98;
-        this.rotation += this.rotV;
-        this.alpha -= this.fade;
+        this.x += this.vx; this.y += this.vy;
+        this.vy += this.gravity; this.vx *= 0.98;
+        this.rotation += this.rotV; this.alpha -= this.fade;
       }
-      draw(ctx) {
+      draw() {
         if (this.alpha <= 0) return;
         ctx.save();
         ctx.globalAlpha = Math.max(0, this.alpha);
         ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation);
-        ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
-        ctx.shadowColor = this.color;
-        ctx.shadowBlur = 10;
+        ctx.font      = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+        ctx.shadowColor = this.color; ctx.shadowBlur = 10;
         ctx.fillStyle = this.color;
         ctx.textAlign = 'center';
         ctx.fillText(this.ch, 0, 0);
@@ -434,19 +309,18 @@
     function loop(now) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      drawLive(now);
+
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.update(now);
-        p.draw(ctx);
+        p.draw();
         if (p.isDead()) particles.splice(i, 1);
       }
 
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
-
-    // ── auto focus on load ───────────────────────────────────────────────
-    window.addEventListener('load', () => { input.focus(); });
   })();
   </script>
 </body>
