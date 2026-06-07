@@ -533,20 +533,19 @@
 
         // Gentle initial kick (small, random direction)
         this.vx = (Math.random() - 0.5) * 1.8;
-        this.vy = -(0.3 + Math.random() * 0.8);            // slight upward puff first
+        this.vy = -(0.1 + Math.random() * 0.27);           // slight upward puff first
 
-        this.gravity  = 0.013 + Math.random() * 0.015;     // very slow fall
-        this.maxVy    = 1.5 + Math.random() * 0.7;
+        this.gravity  = 0.004 + Math.random() * 0.005;     // very slow fall
+        this.maxVy    = 0.5 + Math.random() * 0.23;
 
         this.rotation = (Math.random() - 0.5) * 0.3;
         this.rotV     = (Math.random() - 0.5) * 0.025;     // gentle tumble
         this.rotDamp  = 0.995;
 
         // Slow fade — leaves linger
-        this.fade    = 0.004 + Math.random() * 0.004;
+        this.fade    = 0.0013 + Math.random() * 0.0013;
         this.age     = 0;
-        // Delay fade start so early letters stay crisp
-        this.fadeDelay = Math.random() * 60;
+        this.fadeDelay = Math.random() * 180;
       }
 
       update() {
