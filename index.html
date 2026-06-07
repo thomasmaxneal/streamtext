@@ -261,6 +261,12 @@
       const isToggle = (e.key === ' ' && e.shiftKey) || e.key === 'F2';
       if (isToggle) { e.preventDefault(); setCapture(!capturing); return; }
 
+      if (e.key === ' ' && e.ctrlKey) {
+        e.preventDefault();
+        indicator.style.opacity = indicator.style.opacity === '0' ? '' : '0';
+        return;
+      }
+
       if (!capturing) return;
 
       if (e.key === 'Enter') {
@@ -279,6 +285,10 @@
       if (document.activeElement === input) return;
       const isToggle = (e.key === ' ' && e.shiftKey) || e.key === 'F2';
       if (isToggle) { e.preventDefault(); setCapture(!capturing); }
+      if (e.key === ' ' && e.ctrlKey) {
+        e.preventDefault();
+        indicator.style.opacity = indicator.style.opacity === '0' ? '' : '0';
+      }
     });
 
     // ── dissolve: immediately scatter each character as a leaf ───────────
