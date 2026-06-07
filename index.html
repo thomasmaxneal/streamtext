@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stream Text</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0f;
+      --text: #e8e0ff;
+      --accent: #b48eff;
+      --glow: #8a5fff;
+      --cursor: #b48eff;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+      cursor: none;
+    }
+
+    /* Subtle vignette */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.7) 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #canvas {
+      position: fixed; inset: 0;
+      z-index: 1;
+    }
+
+    /* Hidden real input so keyboard still works */
+    #hidden-input {
+      position: fixed;
+      opacity: 0;
+      width: 1px; height: 1px;
+      top: 0; left: 0;
+      pointer-events: none;
+    }
+
+    /* Typing bar at bottom */
+    #typing-bar {
+      position: fixed;
+      bottom: 36px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(180,142,255,0.18);
+      border-radius: 999px;
+      padding: 14px 28px;
+      min-width: 340px;
+      max-width: 80vw;
+      backdrop-filter: blur(8px);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    #typing-bar.active {
+      border-color: rgba(180,142,255,0.5);
+      box-shadow: 0 0 24px rgba(138,95,255,0.25);
+    }
+
+    #typed-preview {
+      flex: 1;
+      font-family: 'Nunito', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.02em;
+      min-height: 1.4em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #typed-preview .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1.1em;
+      background: var(--cursor);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 1s step-start infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    #hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      color: rgba(180,142,255,0.22);
+      font-size: 1.15rem;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      pointer-events: none;
+      transition: opacity 0.6s;
+      text-align: center;
+    }
+
+    #hint.hidden { opacity: 0; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <input id="hidden-input" type="text" autocomplete="off" spellcheck="false" />
+
+  <div id="hint">Start typing&hellip;</div>
+
+  <div id="typing-bar">
+    <div id="typed-preview"><span class="cursor"></span></div>
+  </div>
+
+  <script>
+  (() => {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const input = document.getElementById('hidden-input');
+    const preview = document.getElementById('typed-preview');
+    const hint = document.getElementById('hint');
+    const bar = document.getElementById('typing-bar');
+
+    // ── resize ──────────────────────────────────────────────────────────
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ── focus management ─────────────────────────────────────────────────
+    document.addEventListener('click', () => input.focus());
+    document.addEventListener('keydown', () => input.focus());
+    input.focus();
+
+    // ── state ────────────────────────────────────────────────────────────
+    let currentText = '';
+    let submitTimer = null;
+    const SUBMIT_DELAY = 1800;   // ms of idle before auto-submit
+    const DISPLAY_DURATION = 4200; // ms word cloud stays before dissolving
+    const particles = [];
+
+    // ── preview bar update ───────────────────────────────────────────────
+    function updatePreview() {
+      preview.innerHTML = currentText
+        ? escapeHtml(currentText) + '<span class="cursor"></span>'
+        : '<span class="cursor"></span>';
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── input handling ───────────────────────────────────────────────────
+    input.addEventListener('input', () => {
+      currentText = input.value;
+      updatePreview();
+      hint.classList.add('hidden');
+      bar.classList.add('active');
+
+      clearTimeout(submitTimer);
+      if (currentText.trim()) {
+        submitTimer = setTimeout(submitText, SUBMIT_DELAY);
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(submitTimer);
+        if (currentText.trim()) submitText();
+      }
+    });
+
+    // ── submit: burst text into particles ────────────────────────────────
+    function submitText() {
+      const text = currentText.trim();
+      if (!text) return;
+
+      // Clear input
+      input.value = '';
+      currentText = '';
+      updatePreview();
+      bar.classList.remove('active');
+
+      spawnWordCloud(text);
+    }
+
+    // ── word cloud spawner ───────────────────────────────────────────────
+    function spawnWordCloud(text) {
+      const words = text.split(/\s+/).filter(Boolean);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+
+      // Arrange words in a flowing cluster
+      const placed = [];
+      const padding = 18;
+
+      words.forEach((word, i) => {
+        const size = Math.max(38, Math.min(90, 90 - words.length * 3.5));
+        const weight = ['700','900'][i % 2];
+
+        // Measure
+        ctx.font = `${weight} ${size}px 'Nunito', sans-serif`;
+        const w = ctx.measureText(word).width;
+        const h = size * 1.2;
+
+        // Try to place without major overlap
+        let x, y, tries = 0;
+        const spreadX = Math.min(canvas.width * 0.38, 320);
+        const spreadY = Math.min(canvas.height * 0.28, 200);
+        do {
+          const angle = (i / words.length) * Math.PI * 2 + Math.random() * 0.8;
+          const r = tries < 20
+            ? 60 + tries * 18 + Math.random() * 40
+            : Math.random() * Math.max(spreadX, spreadY);
+          x = cx + Math.cos(angle) * Math.min(r, spreadX) - w / 2;
+          y = cy + Math.sin(angle) * Math.min(r, spreadY) + h / 2;
+          tries++;
+        } while (tries < 60 && overlaps(placed, x - padding, y - h - padding, w + padding*2, h + padding*2));
+
+        placed.push({ x: x - padding, y: y - h - padding, w: w + padding*2, h: h + padding*2 });
+
+        // Pick a colour from palette
+        const hue = (220 + i * 37 + Math.random() * 20) % 360;
+        const colors = [
+          '#e8e0ff','#b48eff','#8a5fff','#c0aaff',
+          '#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'
+        ];
+        const color = colors[i % colors.length];
+
+        // Glow colour
+        const glow = color;
+
+        particles.push(new WordParticle(word, x, y, size, weight, color, glow));
+      });
+    }
+
+    function overlaps(placed, x, y, w, h) {
+      for (const r of placed) {
+        if (x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y) return true;
+      }
+      return false;
+    }
+
+    // ── WordParticle ─────────────────────────────────────────────────────
+    class WordParticle {
+      constructor(word, x, y, size, weight, color, glow) {
+        this.word = word;
+        this.x = x;
+        this.y = y;
+        this.targetX = x;
+        this.targetY = y;
+        this.size = size;
+        this.weight = weight;
+        this.color = color;
+        this.glow = glow;
+
+        // Start slightly offset for a "pop in" feel
+        this.x += (Math.random() - 0.5) * 60;
+        this.y += (Math.random() - 0.5) * 60;
+
+        this.alpha = 0;
+        this.scale = 0.4 + Math.random() * 0.3;
+        this.rotation = (Math.random() - 0.5) * 0.25;
+
+        this.phase = 'in';   // in | hold | out
+        this.born = performance.now();
+        this.holdStart = null;
+
+        // Explode direction for dissolve
+        this.explodeVX = (Math.random() - 0.5) * 3;
+        this.explodeVY = (Math.random() - 0.5) * 3 - 1.5;
+
+        // Sub-letter particles (created on dissolve)
+        this.letterParticles = [];
+        this.dissolved = false;
+      }
+
+      update(now) {
+        const age = now - this.born;
+
+        if (this.phase === 'in') {
+          const t = Math.min(age / 500, 1);
+          const ease = 1 - Math.pow(1 - t, 3);
+          this.alpha = ease;
+          this.scale = 0.4 + ease * 0.65;
+          this.x += (this.targetX - this.x) * 0.14;
+          this.y += (this.targetY - this.y) * 0.14;
+          this.rotation *= 0.88;
+          if (t >= 1) {
+            this.phase = 'hold';
+            this.holdStart = now;
+          }
+        } else if (this.phase === 'hold') {
+          const held = now - this.holdStart;
+          // Gentle breathing
+          this.scale = 1.02 + Math.sin(held / 400 + this.targetX) * 0.02;
+          if (held >= DISPLAY_DURATION) {
+            this.phase = 'out';
+            this.spawnLetterParticles();
+          }
+        } else if (this.phase === 'out') {
+          this.alpha -= 0.022;
+          this.x += this.explodeVX;
+          this.y += this.explodeVY;
+          this.explodeVY -= 0.05;
+          this.scale += 0.012;
+          this.rotation += (Math.random() - 0.5) * 0.04;
+
+          // Update letter particles
+          for (const lp of this.letterParticles) lp.update();
+        }
+      }
+
+      spawnLetterParticles() {
+        const letters = this.word.split('');
+        ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+        let ox = this.x;
+        for (const ch of letters) {
+          const cw = ctx.measureText(ch).width;
+          this.letterParticles.push(new LetterParticle(
+            ch, ox + cw / 2, this.y,
+            this.size, this.weight, this.color
+          ));
+          ox += cw;
+        }
+      }
+
+      draw(ctx) {
+        if (this.alpha <= 0) return;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha));
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.scale, this.scale);
+        ctx.rotate(this.rotation);
+
+        ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+
+        // Glow
+        ctx.shadowColor = this.glow;
+        ctx.shadowBlur = 22 + (1 - this.alpha) * 20;
+        ctx.fillStyle = this.color;
+        ctx.fillText(this.word, 0, 0);
+
+        // Second pass for extra glow on hold
+        if (this.phase === 'hold') {
+          ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha)) * 0.35;
+          ctx.shadowBlur = 48;
+          ctx.fillText(this.word, 0, 0);
+        }
+
+        ctx.restore();
+
+        // Draw letter particles
+        for (const lp of this.letterParticles) lp.draw(ctx);
+      }
+
+      isDead() {
+        return this.alpha <= 0 && this.phase === 'out';
+      }
+    }
+
+    // ── LetterParticle (dissolve confetti) ───────────────────────────────
+    class LetterParticle {
+      constructor(ch, x, y, size, weight, color) {
+        this.ch = ch;
+        this.x = x;
+        this.y = y;
+        this.size = size * (0.4 + Math.random() * 0.5);
+        this.weight = weight;
+        this.color = color;
+        this.alpha = 0.7 + Math.random() * 0.3;
+        this.vx = (Math.random() - 0.5) * 6;
+        this.vy = (Math.random() - 0.5) * 6 - 2;
+        this.gravity = 0.12 + Math.random() * 0.1;
+        this.rotation = (Math.random() - 0.5) * 0.4;
+        this.rotV = (Math.random() - 0.5) * 0.08;
+        this.fade = 0.016 + Math.random() * 0.012;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += this.gravity;
+        this.vx *= 0.98;
+        this.rotation += this.rotV;
+        this.alpha -= this.fade;
+      }
+      draw(ctx) {
+        if (this.alpha <= 0) return;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, this.alpha);
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = this.color;
+        ctx.textAlign = 'center';
+        ctx.fillText(this.ch, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    // ── render loop ──────────────────────────────────────────────────────
+    function loop(now) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.update(now);
+        p.draw(ctx);
+        if (p.isDead()) particles.splice(i, 1);
+      }
+
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // ── auto focus on load ───────────────────────────────────────────────
+    window.addEventListener('load', () => { input.focus(); });
+  })();
+  </script>
+</body>
+</html>
