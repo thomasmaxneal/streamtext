@@ -76,7 +76,6 @@
 
     // ── config ───────────────────────────────────────────────────────────
     const SUBMIT_DELAY = 1800;
-    const DISPLAY_HOLD = 2400;
     const COLORS = ['#e8e0ff','#b48eff','#8a5fff','#c0aaff','#ffb3f0','#9df0e0','#ffe0b3','#b3d9ff'];
     const POP_MS = 160; // letter pop-in duration
 
@@ -223,140 +222,91 @@
       }
     });
 
-    // ── dissolve: snapshot liveChars → spawn particles by word ───────────
+    // ── dissolve: immediately scatter each character as a leaf ───────────
     function dissolve() {
       if (!liveText.trim()) return;
 
-      // Group consecutive non-space chars into words, spawn one WordParticle each
-      let wordStart = -1;
-      let wordX = 0;
-      const snap = liveChars;
-
-      const flush = (endIdx) => {
-        if (wordStart < 0) return;
-        const slice = snap.slice(wordStart, endIdx);
-        const word  = slice.map(c => c.ch).join('');
-        const { x, y, size, weight, color } = slice[0];
-        particles.push(new WordParticle(word, x, y, size, weight, color));
-        wordStart = -1;
-      };
-
-      snap.forEach((c, i) => {
-        if (c.ch === ' ') { flush(i); }
-        else if (wordStart < 0) { wordStart = i; }
-      });
-      flush(snap.length);
+      for (const c of liveChars) {
+        if (c.ch === ' ') continue;
+        particles.push(new LeafParticle(c.ch, c.x + c.w / 2, c.y, c.size, c.weight, c.color));
+      }
 
       input.value = '';
       liveText    = '';
       liveChars   = [];
     }
 
-    // ── WordParticle ─────────────────────────────────────────────────────
-    class WordParticle {
-      constructor(word, x, y, size, weight, color) {
-        this.word   = word;
-        this.x      = x; this.y = y;
-        this.size   = size;
+    // ── LeafParticle — drifts and sways like an autumn leaf ──────────────
+    class LeafParticle {
+      constructor(ch, x, y, size, weight, color) {
+        this.ch     = ch;
+        this.x      = x;
+        this.y      = y;
+        this.size   = size * (0.75 + Math.random() * 0.35);
         this.weight = weight;
         this.color  = color;
+        this.alpha  = 0.92 + Math.random() * 0.08;
 
-        this.alpha    = 1;
-        this.scale    = 1;
-        this.rotation = 0;
-        this.phase    = 'hold';
-        this.born     = performance.now();
+        // Each leaf has a unique sway frequency and phase
+        this.swayFreq  = 0.018 + Math.random() * 0.018;   // oscillation speed
+        this.swayAmp   = 1.2 + Math.random() * 2.2;        // pixels per frame peak
+        this.swayPhase = Math.random() * Math.PI * 2;
 
-        this.explodeVX = (Math.random() - 0.5) * 3;
-        this.explodeVY = (Math.random() - 0.5) * 3 - 1.5;
-        this.letterParticles = [];
+        // Gentle initial kick (small, random direction)
+        this.vx = (Math.random() - 0.5) * 1.8;
+        this.vy = -(0.3 + Math.random() * 0.8);            // slight upward puff first
+
+        this.gravity  = 0.018 + Math.random() * 0.022;     // very slow fall
+        this.maxVy    = 2.2 + Math.random() * 1.0;
+
+        this.rotation = (Math.random() - 0.5) * 0.3;
+        this.rotV     = (Math.random() - 0.5) * 0.025;     // gentle tumble
+        this.rotDamp  = 0.995;
+
+        // Slow fade — leaves linger
+        this.fade    = 0.004 + Math.random() * 0.004;
+        this.age     = 0;
+        // Delay fade start so early letters stay crisp
+        this.fadeDelay = Math.random() * 60;
       }
 
-      update(now) {
-        if (this.phase === 'hold') {
-          const held = now - this.born;
-          this.scale = 1.02 + Math.sin(held / 400 + this.x) * 0.018;
-          if (held >= DISPLAY_HOLD) {
-            this.phase = 'out';
-            this.spawnLetterParticles();
-          }
-        } else {
-          this.alpha     -= 0.032;
-          this.x         += this.explodeVX;
-          this.y         += this.explodeVY;
-          this.explodeVY -= 0.05;
-          this.scale     += 0.012;
-          this.rotation  += (Math.random() - 0.5) * 0.04;
-          for (const lp of this.letterParticles) lp.update();
-        }
-      }
-
-      spawnLetterParticles() {
-        ctx.font = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
-        let ox = this.x;
-        for (const ch of this.word.split('')) {
-          const cw = ctx.measureText(ch).width;
-          this.letterParticles.push(new LetterParticle(ch, ox + cw / 2, this.y, this.size, this.weight, this.color));
-          ox += cw;
-        }
-      }
-
-      draw() {
-        if (this.alpha <= 0) return;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha));
-        ctx.translate(this.x, this.y);
-        ctx.scale(this.scale, this.scale);
-        ctx.rotate(this.rotation);
-        ctx.font        = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
-        ctx.shadowColor = this.color;
-        ctx.shadowBlur  = 22 + (1 - this.alpha) * 20;
-        ctx.fillStyle   = this.color;
-        ctx.fillText(this.word, 0, 0);
-        if (this.phase === 'hold') {
-          ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha)) * 0.3;
-          ctx.shadowBlur  = 48;
-          ctx.fillText(this.word, 0, 0);
-        }
-        ctx.restore();
-        for (const lp of this.letterParticles) lp.draw();
-      }
-
-      isDead() { return this.alpha <= 0 && this.phase === 'out'; }
-    }
-
-    // ── LetterParticle ───────────────────────────────────────────────────
-    class LetterParticle {
-      constructor(ch, x, y, size, weight, color) {
-        this.ch     = ch; this.x = x; this.y = y;
-        this.size   = size * (0.4 + Math.random() * 0.5);
-        this.weight = weight; this.color = color;
-        this.alpha  = 0.7 + Math.random() * 0.3;
-        this.vx     = (Math.random() - 0.5) * 6;
-        this.vy     = (Math.random() - 0.5) * 6 - 2;
-        this.gravity = 0.12 + Math.random() * 0.1;
-        this.rotation = (Math.random() - 0.5) * 0.4;
-        this.rotV  = (Math.random() - 0.5) * 0.08;
-        this.fade  = 0.016 + Math.random() * 0.012;
-      }
       update() {
-        this.x += this.vx; this.y += this.vy;
-        this.vy += this.gravity; this.vx *= 0.98;
-        this.rotation += this.rotV; this.alpha -= this.fade;
+        this.age++;
+
+        // Sinusoidal sway on x
+        this.x += this.vx + Math.sin(this.age * this.swayFreq + this.swayPhase) * this.swayAmp;
+
+        // Gravity — accelerate downward up to max
+        this.vy = Math.min(this.vy + this.gravity, this.maxVy);
+        this.y += this.vy;
+
+        // Horizontal drag
+        this.vx *= 0.992;
+
+        // Tumbling rotation that gradually slows
+        this.rotV  *= this.rotDamp;
+        this.rotation += this.rotV;
+
+        // Fade after delay
+        if (this.age > this.fadeDelay) this.alpha -= this.fade;
       }
+
       draw() {
         if (this.alpha <= 0) return;
         ctx.save();
         ctx.globalAlpha = Math.max(0, this.alpha);
         ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation);
-        ctx.font      = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
-        ctx.shadowColor = this.color; ctx.shadowBlur = 10;
-        ctx.fillStyle = this.color;
-        ctx.textAlign = 'center';
+        ctx.font        = `${this.weight} ${this.size}px 'Nunito', sans-serif`;
+        ctx.shadowColor = this.color;
+        ctx.shadowBlur  = 12 + (1 - this.alpha) * 10;
+        ctx.fillStyle   = this.color;
+        ctx.textAlign   = 'center';
         ctx.fillText(this.ch, 0, 0);
         ctx.restore();
       }
+
+      isDead() { return this.alpha <= 0; }
     }
 
     // ── render loop ──────────────────────────────────────────────────────
