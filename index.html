@@ -146,12 +146,84 @@
       color: rgba(180,142,255,0.28);
       text-align: center;
     }
+
+    #bg-slider-panel {
+      position: fixed;
+      bottom: 36px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(180,142,255,0.22);
+      border-radius: 999px;
+      padding: 12px 26px;
+      backdrop-filter: blur(10px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    #bg-slider-panel.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+    #bg-slider-panel label {
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(180,142,255,0.55);
+    }
+    #bg-opacity-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 180px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(180,142,255,0.2);
+      outline: none;
+      cursor: pointer;
+    }
+    #bg-opacity-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #b48eff;
+      box-shadow: 0 0 8px #8a5fff;
+      cursor: pointer;
+    }
+    #bg-opacity-slider::-moz-range-thumb {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #b48eff;
+      box-shadow: 0 0 8px #8a5fff;
+      cursor: pointer;
+      border: none;
+    }
+    #bg-opacity-value {
+      font-family: 'Nunito', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: rgba(180,142,255,0.55);
+      min-width: 36px;
+      text-align: right;
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <input id="hidden-input" type="text" autocomplete="off" spellcheck="false" />
   <div id="hint">Start typing&hellip;</div>
+
+  <div id="bg-slider-panel">
+    <label>Background</label>
+    <input id="bg-opacity-slider" type="range" min="0" max="100" value="100" />
+    <span id="bg-opacity-value">100%</span>
+  </div>
 
   <div id="hotkey-overlay">
     <div class="card">
@@ -181,6 +253,10 @@
           <td><kbd>Escape</kbd></td>
           <td class="desc">Exit fullscreen</td>
         </tr>
+        <tr>
+          <td><kbd>Ctrl</kbd> + <kbd>B</kbd></td>
+          <td class="desc">Background opacity slider</td>
+        </tr>
       </table>
       <p class="hold-hint">Hold ` to show this panel</p>
     </div>
@@ -197,7 +273,28 @@
     const input     = document.getElementById('hidden-input');
     const hint      = document.getElementById('hint');
     const indicator = document.getElementById('capture-indicator');
-    const hotkeyOverlay = document.getElementById('hotkey-overlay');
+    const hotkeyOverlay  = document.getElementById('hotkey-overlay');
+    const bgSliderPanel  = document.getElementById('bg-slider-panel');
+    const bgSlider       = document.getElementById('bg-opacity-slider');
+    const bgValueLabel   = document.getElementById('bg-opacity-value');
+
+    // ── background opacity ────────────────────────────────────────────────
+    let bgOpacity = 1;
+    function applyBgOpacity(val) {
+      bgOpacity = val / 100;
+      document.body.style.background = bgOpacity === 0
+        ? 'transparent'
+        : `rgba(13,13,15,${bgOpacity})`;
+      bgValueLabel.textContent = val + '%';
+    }
+    bgSlider.addEventListener('input', () => { applyBgOpacity(Number(bgSlider.value)); showBgSlider(); });
+
+    let bgSliderTimer = null;
+    function showBgSlider() {
+      bgSliderPanel.classList.add('visible');
+      clearTimeout(bgSliderTimer);
+      bgSliderTimer = setTimeout(() => bgSliderPanel.classList.remove('visible'), 3000);
+    }
 
     // ── input capture toggle ─────────────────────────────────────────────
     let capturing = true;
@@ -374,6 +471,11 @@
         indicator.style.opacity = indicator.style.opacity === '0' ? '' : '0';
         return;
       }
+      if (e.key === 'b' && e.ctrlKey) {
+        e.preventDefault();
+        showBgSlider();
+        return;
+      }
 
       if (!capturing) return;
 
@@ -393,10 +495,8 @@
       if (document.activeElement === input) return;
       const isToggle = (e.key === ' ' && e.shiftKey) || e.key === 'F2';
       if (isToggle) { e.preventDefault(); setCapture(!capturing); }
-      if (e.key === ' ' && e.ctrlKey) {
-        e.preventDefault();
-        indicator.style.opacity = indicator.style.opacity === '0' ? '' : '0';
-      }
+      if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); indicator.style.opacity = indicator.style.opacity === '0' ? '' : '0'; }
+      if (e.key === 'b' && e.ctrlKey) { e.preventDefault(); showBgSlider(); }
     });
 
     // ── dissolve: immediately scatter each character as a leaf ───────────
