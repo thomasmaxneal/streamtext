@@ -356,7 +356,17 @@
     // ── focus ────────────────────────────────────────────────────────────
     document.addEventListener('click',   () => { if (capturing) input.focus(); });
     document.addEventListener('keydown', () => { if (capturing) input.focus(); });
-    window.addEventListener('load',      () => input.focus());
+    window.addEventListener('load', () => {
+      input.focus();
+      // Fullscreen requires a user gesture — request it on first keydown or click
+      const requestFS = () => {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+        document.removeEventListener('keydown', requestFS);
+        document.removeEventListener('click',   requestFS);
+      };
+      document.addEventListener('keydown', requestFS);
+      document.addEventListener('click',   requestFS);
+    });
     input.focus();
 
     // ── config ───────────────────────────────────────────────────────────
@@ -501,7 +511,14 @@
     }
 
     // ── input events ─────────────────────────────────────────────────────
+    let suppressNextInput = false;
+
     input.addEventListener('input', () => {
+      if (suppressNextInput) {
+        suppressNextInput = false;
+        input.value = liveText; // restore — a hotkey slipped through
+        return;
+      }
       if (!capturing) return;
       liveText = input.value;
       reflow(liveText, performance.now());
@@ -527,18 +544,23 @@
         return;
       }
       if (e.key === 'I' && e.shiftKey) {
-        e.preventDefault();
+        e.preventDefault(); suppressNextInput = true;
         toggleFont();
         return;
       }
       if ((e.key === 'C' && e.shiftKey) || (e.key === 'c' && e.ctrlKey)) {
-        e.preventDefault();
+        e.preventDefault(); suppressNextInput = true;
         cursorEnabled = !cursorEnabled;
         return;
       }
       if (e.key === 'V' && e.shiftKey) {
-        e.preventDefault();
+        e.preventDefault(); suppressNextInput = true;
         toggleVisualizer();
+        return;
+      }
+      if (e.key === 'F' && e.shiftKey) {
+        e.preventDefault(); suppressNextInput = true;
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
         return;
       }
 
@@ -548,10 +570,6 @@
         e.preventDefault();
         clearTimeout(submitTimer);
         if (liveText.trim()) dissolve();
-      }
-      if (e.key === 'F' && e.shiftKey) {
-        e.preventDefault();
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
       }
     });
 
