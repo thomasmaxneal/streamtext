@@ -237,6 +237,63 @@
       text-shadow: 0 0 36px rgba(138,95,255,0.8);
     }
     #viz-prompt.hidden { opacity: 0; pointer-events: none; }
+
+    /* Mic device picker modal */
+    #mic-picker-overlay {
+      position: fixed; inset: 0;
+      z-index: 30;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(10,8,18,0.75);
+      backdrop-filter: blur(8px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    #mic-picker-overlay.visible { opacity: 1; pointer-events: all; }
+    #mic-picker-overlay .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(180,142,255,0.22);
+      border-radius: 18px;
+      padding: 32px 40px;
+      min-width: 320px;
+      max-width: 480px;
+      width: 90vw;
+      font-family: 'Nunito', sans-serif;
+    }
+    #mic-picker-overlay h2 {
+      font-size: 0.72rem; font-weight: 900;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: rgba(180,142,255,0.5); margin-bottom: 20px;
+    }
+    .mic-device-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px; border-radius: 10px;
+      cursor: pointer; transition: background 0.15s;
+      color: rgba(232,224,255,0.75);
+      font-size: 0.92rem; font-weight: 700;
+    }
+    .mic-device-item:hover { background: rgba(180,142,255,0.1); }
+    .mic-device-item.selected { background: rgba(180,142,255,0.15); color: #c0aaff; }
+    .mic-device-item .radio {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid rgba(180,142,255,0.4);
+      flex-shrink: 0; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .mic-device-item.selected .radio {
+      border-color: #b48eff;
+      box-shadow: inset 0 0 0 3px #b48eff;
+    }
+    #mic-picker-close {
+      margin-top: 22px;
+      display: block; width: 100%;
+      padding: 10px; border-radius: 10px;
+      background: rgba(180,142,255,0.12);
+      border: 1px solid rgba(180,142,255,0.25);
+      color: #b48eff; font-family: 'Nunito', sans-serif;
+      font-size: 0.82rem; font-weight: 800;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      cursor: pointer; transition: background 0.15s;
+    }
+    #mic-picker-close:hover { background: rgba(180,142,255,0.22); }
   </style>
 </head>
 <body>
@@ -315,10 +372,26 @@
     position:fixed; top:24px; right:160px; z-index:10;
     display:flex; align-items:center; gap:8px;
     font-family:'Nunito',sans-serif; font-size:0.78rem; font-weight:700;
-    letter-spacing:0.1em; text-transform:uppercase; pointer-events:none;
+    letter-spacing:0.1em; text-transform:uppercase;
     opacity:0; transition:opacity 0.3s;">
     <div id="mic-dot" style="width:8px;height:8px;border-radius:50%;background:#ff6b6b;transition:background 0.3s,box-shadow 0.3s;"></div>
     <span id="mic-label" style="color:rgba(255,100,100,0.6);">Mic off</span>
+    <button id="mic-device-btn" title="Select microphone" style="
+      margin-left:4px; background:rgba(180,142,255,0.1);
+      border:1px solid rgba(180,142,255,0.25); border-radius:6px;
+      color:#b48eff; font-family:'Nunito',sans-serif;
+      font-size:0.7rem; font-weight:800; padding:2px 8px;
+      cursor:pointer; letter-spacing:0.06em; transition:background 0.15s;">
+      &#9881;
+    </button>
+  </div>
+
+  <div id="mic-picker-overlay">
+    <div class="card">
+      <h2>Select Microphone</h2>
+      <div id="mic-device-list"></div>
+      <button id="mic-picker-close">Done</button>
+    </div>
   </div>
 
   <script>
@@ -851,9 +924,56 @@
     input.addEventListener('input', () => { lastTyped = performance.now(); });
 
     // ── speech recognition (mic subtitles) ───────────────────────────────
-    const micIndicator = document.getElementById('mic-indicator');
-    const micDot       = document.getElementById('mic-dot');
-    const micLabel     = document.getElementById('mic-label');
+    const micIndicator   = document.getElementById('mic-indicator');
+    const micDot         = document.getElementById('mic-dot');
+    const micLabel       = document.getElementById('mic-label');
+    const micDeviceBtn   = document.getElementById('mic-device-btn');
+    const micPickerOverlay = document.getElementById('mic-picker-overlay');
+    const micDeviceList  = document.getElementById('mic-device-list');
+    const micPickerClose = document.getElementById('mic-picker-close');
+
+    let selectedMicId = null; // null = system default
+
+    // ── mic device picker ─────────────────────────────────────────────────
+    async function openMicPicker() {
+      // Request permission first so device labels are visible
+      try { await navigator.mediaDevices.getUserMedia({ audio: true }); } catch(_) {}
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics    = devices.filter(d => d.kind === 'audioinput');
+
+      micDeviceList.innerHTML = '';
+
+      // "System default" option
+      const allMics = [{ deviceId: null, label: 'System default' }, ...mics];
+      allMics.forEach(d => {
+        const item = document.createElement('div');
+        item.className = 'mic-device-item' + (d.deviceId === selectedMicId ? ' selected' : '');
+        item.innerHTML = `<div class="radio"></div><span>${d.label || 'Microphone'}</span>`;
+        item.addEventListener('click', () => {
+          selectedMicId = d.deviceId;
+          micDeviceList.querySelectorAll('.mic-device-item').forEach(el => el.classList.remove('selected'));
+          item.classList.add('selected');
+          // Restart mic with new device if currently active
+          if (micActive) { stopMic(); startMic(); }
+        });
+        micDeviceList.appendChild(item);
+      });
+
+      micPickerOverlay.classList.add('visible');
+      input.blur();
+    }
+
+    micDeviceBtn.addEventListener('click', (e) => { e.stopPropagation(); openMicPicker(); });
+    micPickerClose.addEventListener('click', () => {
+      micPickerOverlay.classList.remove('visible');
+      if (capturing) input.focus();
+    });
+    micPickerOverlay.addEventListener('click', (e) => {
+      if (e.target === micPickerOverlay) {
+        micPickerOverlay.classList.remove('visible');
+        if (capturing) input.focus();
+      }
+    });
 
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition  = null;
@@ -862,17 +982,28 @@
 
     function setMicUI(on) {
       micIndicator.style.opacity = '1';
+      micIndicator.style.pointerEvents = 'all';
       micDot.style.background   = on ? '#7dff9a' : '#ff6b6b';
       micDot.style.boxShadow    = on ? '0 0 8px #7dff9a' : '0 0 8px #ff6b6b';
       micLabel.style.color      = on ? 'rgba(125,255,154,0.7)' : 'rgba(255,100,100,0.6)';
       micLabel.textContent      = on ? 'Mic on' : 'Mic off';
     }
 
-    function startMic() {
+    async function startMic() {
       if (!SpeechRec) {
         alert('Speech recognition is not supported in this browser.\nUse Chrome or Edge.');
         return;
       }
+      // Prime Chrome to use the selected device (SpeechRecognition picks up
+      // the most recently activated audio stream's device)
+      try {
+        const constraint = selectedMicId
+          ? { audio: { deviceId: { exact: selectedMicId } } }
+          : { audio: true };
+        const stream = await navigator.mediaDevices.getUserMedia(constraint);
+        stream.getTracks().forEach(t => t.stop()); // we only need the activation
+      } catch(_) {}
+
       recognition = new SpeechRec();
       recognition.continuous      = true;
       recognition.interimResults  = true;
