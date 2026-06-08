@@ -453,7 +453,7 @@
       const totalH = lines.length * lineH - (lineH - size);
       // When visualizer is active, constrain text to the space above it
       const ceiling = vizEnabled ? vizTopY() - 24 : canvas.height;
-      const textZoneCenter = vizEnabled ? ceiling / 2 : canvas.height / 2;
+      const textZoneCenter = (vizEnabled ? ceiling / 2 : canvas.height / 2) + 60;
       const startY = textZoneCenter - totalH / 2 + size;
 
       let idx = 0;
