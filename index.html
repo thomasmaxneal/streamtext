@@ -811,28 +811,38 @@
 
     async function enableVisualizer() {
       try {
-        vizPrompt.textContent  = '⏳ Requesting audio…';
-        // Try system audio first via getDisplayMedia
-        let stream;
-        try {
-          stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: { width: 1, height: 1 } });
-          // Stop the video track immediately — we only need audio
-          stream.getVideoTracks().forEach(t => t.stop());
-        } catch {
-          // Fall back to microphone
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        vizPrompt.textContent = '⏳ Select a window or screen — check "Share audio"…';
+        // Desktop audio only — never fall back to mic (mic is reserved for speech)
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          audio: { suppressLocalAudioPlayback: false },
+          video: { width: 1, height: 1 }
+        });
+        // Drop the video track immediately
+        stream.getVideoTracks().forEach(t => t.stop());
+
+        if (!stream.getAudioTracks().length) {
+          vizPrompt.textContent = '⚠ No audio shared — tick "Share audio" and try again';
+          setTimeout(() => { vizPrompt.textContent = '▶ Enable audio visualizer'; }, 3000);
+          return;
         }
 
-        audioCtx  = new AudioContext();
-        analyser  = audioCtx.createAnalyser();
-        analyser.fftSize       = 256;
+        audioCtx = new AudioContext();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize              = 256;
         analyser.smoothingTimeConstant = 0.8;
-        freqData  = new Uint8Array(analyser.frequencyBinCount);
+        freqData = new Uint8Array(analyser.frequencyBinCount);
 
         const src = audioCtx.createMediaStreamSource(stream);
         src.connect(analyser);
 
-        vizEnabled  = true;
+        // If stream ends (user stops sharing) reset cleanly
+        stream.getAudioTracks()[0].addEventListener('ended', () => {
+          vizEnabled = false;
+          vizPrompt.classList.remove('hidden');
+          vizPrompt.textContent = '▶ Enable audio visualizer';
+        });
+
+        vizEnabled = true;
         vizPrompt.classList.add('hidden');
       } catch (err) {
         vizPrompt.textContent = '⚠ Audio permission denied';
