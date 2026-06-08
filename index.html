@@ -755,8 +755,7 @@
     function drawVisualizer(now) {
       if (!analyser) return;
 
-      const idle   = !liveText && (now - lastTyped > VIZ_FADE_DELAY);
-      const target = (vizEnabled && idle) ? 1 : 0;
+      const target = vizEnabled ? 1 : 0;
       vizAlpha += (target - vizAlpha) * 0.04;
       if (vizAlpha < 0.005) return;
 
