@@ -215,22 +215,27 @@
 
     #viz-prompt {
       position: fixed;
-      bottom: 36px;
+      top: 50%;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translate(-50%, -50%);
       z-index: 5;
       font-family: 'Nunito', sans-serif;
-      font-size: 0.72rem;
-      font-weight: 800;
+      font-size: 1.1rem;
+      font-weight: 900;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: rgba(180,142,255,0.28);
+      color: rgba(180,142,255,0.7);
       cursor: pointer;
       pointer-events: all;
-      transition: opacity 0.4s, color 0.2s;
+      transition: opacity 0.4s, color 0.2s, transform 0.2s;
       white-space: nowrap;
+      text-shadow: 0 0 24px rgba(138,95,255,0.5);
     }
-    #viz-prompt:hover { color: rgba(180,142,255,0.6); }
+    #viz-prompt:hover {
+      color: #b48eff;
+      transform: translate(-50%, -50%) scale(1.06);
+      text-shadow: 0 0 36px rgba(138,95,255,0.8);
+    }
     #viz-prompt.hidden { opacity: 0; pointer-events: none; }
   </style>
 </head>
@@ -742,6 +747,15 @@
     }
 
     vizPrompt.addEventListener('click', enableVisualizer);
+
+    // Also trigger on first user interaction (key or click anywhere)
+    const autoStartViz = () => {
+      enableVisualizer();
+      document.removeEventListener('keydown', autoStartViz);
+      document.removeEventListener('click',   autoStartViz);
+    };
+    document.addEventListener('keydown', autoStartViz);
+    document.addEventListener('click',   autoStartViz);
 
     function toggleVisualizer() {
       if (!vizEnabled) {
