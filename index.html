@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Stream Text</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&family=UnifrakturMaguntia&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&family=UnifrakturMaguntia&family=Cinzel:wght@700;900&display=swap');
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -283,6 +283,10 @@
           <td class="desc">Toggle Inscryption font</td>
         </tr>
         <tr>
+          <td><kbd>Shift</kbd> + <kbd>H</kbd></td>
+          <td class="desc">Toggle Hades font</td>
+        </tr>
+        <tr>
           <td><kbd>Shift</kbd> + <kbd>C</kbd> / <kbd>Ctrl</kbd> + <kbd>C</kbd></td>
           <td class="desc">Toggle cursor visibility</td>
         </tr>
@@ -375,13 +379,13 @@
     const POP_MS = 160;
 
     const FONTS = {
-      normal:     { family: "'Nunito', sans-serif",          weight: '800' },
+      normal:      { family: "'Nunito', sans-serif",          weight: '800' },
       inscryption: { family: "'UnifrakturMaguntia', cursive", weight: '400' },
+      hades:       { family: "'Cinzel', serif",               weight: '700' },
     };
     let activeFont = 'normal';
-    function toggleFont() {
-      activeFont = activeFont === 'normal' ? 'inscryption' : 'normal';
-      // Reflow with new font if text is live
+    function toggleFont(name) {
+      activeFont = activeFont === name ? 'normal' : name;
       if (liveText) reflow(liveText, performance.now());
     }
     function fontFamily() { return FONTS[activeFont].family; }
@@ -545,7 +549,12 @@
       }
       if (e.key === 'I' && e.shiftKey) {
         e.preventDefault(); suppressNextInput = true;
-        toggleFont();
+        toggleFont('inscryption');
+        return;
+      }
+      if (e.key === 'H' && e.shiftKey) {
+        e.preventDefault(); suppressNextInput = true;
+        toggleFont('hades');
         return;
       }
       if ((e.key === 'C' && e.shiftKey) || (e.key === 'c' && e.ctrlKey)) {
@@ -582,6 +591,7 @@
       if (e.key === 'b' && e.ctrlKey) { e.preventDefault(); showBgSlider(); }
       if ((e.key === 'C' && e.shiftKey) || (e.key === 'c' && e.ctrlKey)) { e.preventDefault(); cursorEnabled = !cursorEnabled; }
       if (e.key === 'V' && e.shiftKey) { e.preventDefault(); toggleVisualizer(); }
+      if (e.key === 'H' && e.shiftKey) { e.preventDefault(); toggleFont('hades'); }
     });
 
     // ── dissolve: immediately scatter each character as a leaf ───────────
