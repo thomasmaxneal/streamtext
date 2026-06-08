@@ -299,6 +299,10 @@
           <td><kbd>Shift</kbd> + <kbd>V</kbd></td>
           <td class="desc">Toggle audio visualizer</td>
         </tr>
+        <tr>
+          <td><kbd>Shift</kbd> + <kbd>M</kbd></td>
+          <td class="desc">Toggle mic subtitles</td>
+        </tr>
       </table>
       <p class="hold-hint">Hold ` to show this panel</p>
     </div>
@@ -306,6 +310,15 @@
   <div id="capture-indicator" class="on" style="opacity:0">
     <div class="dot"></div>
     <span class="label">Capturing</span>
+  </div>
+  <div id="mic-indicator" style="
+    position:fixed; top:24px; right:160px; z-index:10;
+    display:flex; align-items:center; gap:8px;
+    font-family:'Nunito',sans-serif; font-size:0.78rem; font-weight:700;
+    letter-spacing:0.1em; text-transform:uppercase; pointer-events:none;
+    opacity:0; transition:opacity 0.3s;">
+    <div id="mic-dot" style="width:8px;height:8px;border-radius:50%;background:#ff6b6b;transition:background 0.3s,box-shadow 0.3s;"></div>
+    <span id="mic-label" style="color:rgba(255,100,100,0.6);">Mic off</span>
   </div>
 
   <script>
@@ -575,6 +588,11 @@
         toggleVisualizer();
         return;
       }
+      if (e.key === 'M' && e.shiftKey) {
+        e.preventDefault(); suppressNextInput = true;
+        toggleMic();
+        return;
+      }
       if (e.key === 'F' && e.shiftKey) {
         e.preventDefault(); suppressNextInput = true;
         if (!document.fullscreenElement) document.documentElement.requestFullscreen();
@@ -600,6 +618,7 @@
       if ((e.key === 'C' && e.shiftKey) || (e.key === 'c' && e.ctrlKey)) { e.preventDefault(); cursorEnabled = !cursorEnabled; }
       if (e.key === 'V' && e.shiftKey) { e.preventDefault(); toggleVisualizer(); }
       if (e.key === 'H' && e.shiftKey) { e.preventDefault(); toggleFont('hades'); }
+      if (e.key === 'M' && e.shiftKey) { e.preventDefault(); toggleMic(); }
     });
 
     // ── dissolve: immediately scatter each character as a leaf ───────────
@@ -826,8 +845,96 @@
       ctx.restore();
     }
 
-    // Track last keystroke time so viz knows when to fade in
+    // Track last keystroke time
     input.addEventListener('input', () => { lastTyped = performance.now(); });
+
+    // ── speech recognition (mic subtitles) ───────────────────────────────
+    const micIndicator = document.getElementById('mic-indicator');
+    const micDot       = document.getElementById('mic-dot');
+    const micLabel     = document.getElementById('mic-label');
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition  = null;
+    let micActive    = false;
+    let micRestart   = false; // flag to restart after unexpected end
+
+    function setMicUI(on) {
+      micIndicator.style.opacity = '1';
+      micDot.style.background   = on ? '#7dff9a' : '#ff6b6b';
+      micDot.style.boxShadow    = on ? '0 0 8px #7dff9a' : '0 0 8px #ff6b6b';
+      micLabel.style.color      = on ? 'rgba(125,255,154,0.7)' : 'rgba(255,100,100,0.6)';
+      micLabel.textContent      = on ? 'Mic on' : 'Mic off';
+    }
+
+    function startMic() {
+      if (!SpeechRec) {
+        alert('Speech recognition is not supported in this browser.\nUse Chrome or Edge.');
+        return;
+      }
+      recognition = new SpeechRec();
+      recognition.continuous      = true;
+      recognition.interimResults  = true;
+      recognition.lang            = 'en-US';
+
+      recognition.onresult = (e) => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) {
+            // Final result — dissolve whatever is showing and clear
+            if (liveText.trim()) dissolve();
+            // Brief flash of the final text then dissolve
+            setLiveMicText(t.trim());
+            setTimeout(() => {
+              if (micActive) dissolve();
+            }, 900);
+          } else {
+            interim += t;
+          }
+        }
+        if (interim) setLiveMicText(interim.trim());
+      };
+
+      recognition.onerror = (e) => {
+        if (e.error === 'no-speech') return; // ignore silence
+        if (e.error === 'not-allowed') { stopMic(); return; }
+      };
+
+      recognition.onend = () => {
+        // Auto-restart unless we explicitly stopped
+        if (micRestart) {
+          try { recognition.start(); } catch(_) {}
+        }
+      };
+
+      micRestart = true;
+      recognition.start();
+      micActive = true;
+      setMicUI(true);
+    }
+
+    function stopMic() {
+      micRestart = false;
+      micActive  = false;
+      if (recognition) { recognition.stop(); recognition = null; }
+      // Clear any live mic text
+      input.value = '';
+      liveText    = '';
+      liveChars   = [];
+      setMicUI(false);
+    }
+
+    function setLiveMicText(text) {
+      // Bypass the keyboard input path — set liveText directly and reflow
+      liveText    = text;
+      input.value = text;
+      reflow(text, performance.now());
+      clearTimeout(submitTimer);
+    }
+
+    function toggleMic() {
+      if (micActive) stopMic(); else startMic();
+    }
 
     // ── render loop ──────────────────────────────────────────────────────
     function loop(now) {
