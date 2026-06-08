@@ -537,13 +537,15 @@
 
     // ── input events ─────────────────────────────────────────────────────
     let suppressNextInput = false;
+    let micSuppressInput  = false;  // set true when mic writes input.value
 
     input.addEventListener('input', () => {
       if (suppressNextInput) {
         suppressNextInput = false;
-        input.value = liveText; // restore — a hotkey slipped through
+        input.value = liveText;
         return;
       }
+      if (micSuppressInput) { micSuppressInput = false; return; }
       if (!capturing) return;
       liveText = input.value;
       reflow(liveText, performance.now());
@@ -881,13 +883,15 @@
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const t = e.results[i][0].transcript;
           if (e.results[i].isFinal) {
-            // Final result — dissolve whatever is showing and clear
-            if (liveText.trim()) dissolve();
-            // Brief flash of the final text then dissolve
+            // Type out the final text fully, then dissolve after a beat
             setLiveMicText(t.trim());
+            const finalText = t.trim();
             setTimeout(() => {
-              if (micActive) dissolve();
-            }, 900);
+              if (micActive && liveText === finalText) {
+                clearMicText();
+                dissolve();
+              }
+            }, 1800);
           } else {
             interim += t;
           }
@@ -917,19 +921,53 @@
       micRestart = false;
       micActive  = false;
       if (recognition) { recognition.stop(); recognition = null; }
-      // Clear any live mic text
+      clearMicText();
       input.value = '';
       liveText    = '';
       liveChars   = [];
       setMicUI(false);
     }
 
+    // ── typewriter queue for mic text ─────────────────────────────────────
+    let twTarget  = '';   // full target string
+    let twShown   = 0;    // how many chars currently displayed
+    let twTimer   = null;
+    const TW_MS   = 38;   // ms between each letter
+
+    function tickTypewriter() {
+      twTimer = null;
+      if (twShown >= twTarget.length) return;
+      twShown++;
+      const partial = twTarget.slice(0, twShown);
+      micSuppressInput = true;
+      input.value = partial;
+      liveText    = partial;
+      reflow(partial, performance.now());
+      if (twShown < twTarget.length) twTimer = setTimeout(tickTypewriter, TW_MS);
+    }
+
     function setLiveMicText(text) {
-      // Bypass the keyboard input path — set liveText directly and reflow
-      liveText    = text;
-      input.value = text;
-      reflow(text, performance.now());
       clearTimeout(submitTimer);
+      if (text === twTarget) return; // nothing changed
+
+      // If new text starts with what we've already shown, just extend
+      if (text.startsWith(twTarget.slice(0, twShown))) {
+        twTarget = text;
+        if (!twTimer && twShown < twTarget.length) twTimer = setTimeout(tickTypewriter, TW_MS);
+      } else {
+        // New/corrected phrase — restart from zero
+        clearTimeout(twTimer);
+        twTarget = text;
+        twShown  = 0;
+        twTimer  = setTimeout(tickTypewriter, TW_MS);
+      }
+    }
+
+    function clearMicText() {
+      clearTimeout(twTimer);
+      twTimer  = null;
+      twTarget = '';
+      twShown  = 0;
     }
 
     function toggleMic() {
